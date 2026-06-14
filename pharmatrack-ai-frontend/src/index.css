@@ -1,0 +1,38 @@
+@import './styles/theme.css';
+@import './styles/glass.css';
+@import './styles/scrollbar.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    @apply scroll-smooth;
+  }
+
+  body {
+    @apply bg-background text-on-surface font-body antialiased transition-colors duration-300;
+  }
+
+  ::selection {
+    @apply bg-primary/30 text-on-surface;
+  }
+
+  /* Material Symbols default state - "icon-filled" toggles the FILL axis */
+  .material-symbols-outlined {
+    font-variation-settings:
+      'FILL' 0,
+      'wght' 400,
+      'GRAD' 0,
+      'opsz' 24;
+  }
+
+  .material-symbols-outlined.icon-filled {
+    font-variation-settings:
+      'FILL' 1,
+      'wght' 400,
+      'GRAD' 0,
+      'opsz' 24;
+  }
+}

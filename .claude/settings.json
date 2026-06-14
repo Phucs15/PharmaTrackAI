@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "powershell",
+            "command": "$h=$input|Out-String|ConvertFrom-Json; if(-not $h.stop_hook_active){ @{decision='block';reason='Before stopping, check the project root for a file named sumary.md. If it does not exist, create it with a concise summary of the work completed in this session. If it already exists, edit it in place (do not recreate or overwrite from scratch) to add or update notes about new changes made in this session; if nothing new occurred since the last summary, leave the file unchanged. Then stop normally.'} | ConvertTo-Json -Compress }",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

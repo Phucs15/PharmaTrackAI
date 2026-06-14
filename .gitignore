@@ -1,0 +1,14 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+
+# Logs
+*.log
+
+# Env files (subprojects also ignore these locally)
+.env
+.env.local
+
+# Local Claude session notes (not part of the project source)
+sumary.md
