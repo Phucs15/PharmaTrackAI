@@ -37,3 +37,14 @@ export async function register(payload) {
   const response = await api.post('/auth/register', payload);
   return response.data;
 }
+
+export async function updateProfile(payload) {
+  const response = await api.put('/auth/me', payload);
+  localStorage.setItem(USER_KEY, JSON.stringify(response.data));
+  return response.data;
+}
+
+export async function changePassword(payload) {
+  const response = await api.put('/auth/password', payload);
+  return response.data;
+}

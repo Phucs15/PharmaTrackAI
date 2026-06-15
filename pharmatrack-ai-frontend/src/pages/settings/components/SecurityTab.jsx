@@ -4,6 +4,7 @@ import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import FormSection from '@/components/forms/FormSection';
 import TextField from '@/components/forms/TextField';
+import * as authService from '@/services/authService';
 import ToggleSwitch from './ToggleSwitch';
 
 const INITIAL_SESSIONS = [
@@ -12,11 +13,54 @@ const INITIAL_SESSIONS = [
   { id: 'sess-3', device: 'Firefox on macOS', location: 'Seattle, WA', current: false, lastActive: '3 days ago' },
 ];
 
+const EMPTY_PASSWORD_FORM = { currentPassword: '', newPassword: '', confirmPassword: '' };
+
 export default function SecurityTab() {
   const [twoFactor, setTwoFactor] = useState(false);
   const [sessions, setSessions] = useState(INITIAL_SESSIONS);
+  const [passwordForm, setPasswordForm] = useState(EMPTY_PASSWORD_FORM);
+  const [passwordErrors, setPasswordErrors] = useState({});
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const [passwordSaved, setPasswordSaved] = useState(false);
 
   const revokeSession = (id) => setSessions((prev) => prev.filter((session) => session.id !== id));
+
+  const handlePasswordChange = (field) => (event) => {
+    setPasswordForm((prev) => ({ ...prev, [field]: event.target.value }));
+    setPasswordErrors((prev) => ({ ...prev, [field]: undefined, form: undefined }));
+    setPasswordSaved(false);
+  };
+
+  const validatePasswordForm = () => {
+    const nextErrors = {};
+    if (!passwordForm.currentPassword) nextErrors.currentPassword = 'Current password is required.';
+    if (!passwordForm.newPassword) nextErrors.newPassword = 'New password is required.';
+    else if (passwordForm.newPassword.length < 8) nextErrors.newPassword = 'Password must be at least 8 characters.';
+    if (passwordForm.confirmPassword !== passwordForm.newPassword) {
+      nextErrors.confirmPassword = 'Passwords do not match.';
+    }
+    return nextErrors;
+  };
+
+  const handleUpdatePassword = async () => {
+    const nextErrors = validatePasswordForm();
+    setPasswordErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) return;
+
+    setPasswordSaving(true);
+    try {
+      await authService.changePassword({
+        currentPassword: passwordForm.currentPassword,
+        newPassword: passwordForm.newPassword,
+      });
+      setPasswordForm(EMPTY_PASSWORD_FORM);
+      setPasswordSaved(true);
+    } catch (err) {
+      setPasswordErrors({ form: err.response?.data?.message || 'Failed to update password.' });
+    } finally {
+      setPasswordSaving(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -29,15 +73,46 @@ export default function SecurityTab() {
             id="currentPassword"
             type="password"
             icon="lock"
+            value={passwordForm.currentPassword}
+            onChange={handlePasswordChange('currentPassword')}
+            error={passwordErrors.currentPassword}
             containerClassName="sm:col-span-2"
           />
-          <TextField label="New Password" id="newPassword" type="password" icon="lock_reset" />
-          <TextField label="Confirm New Password" id="confirmPassword" type="password" icon="lock_reset" />
+          <TextField
+            label="New Password"
+            id="newPassword"
+            type="password"
+            icon="lock_reset"
+            value={passwordForm.newPassword}
+            onChange={handlePasswordChange('newPassword')}
+            error={passwordErrors.newPassword}
+          />
+          <TextField
+            label="Confirm New Password"
+            id="confirmPassword"
+            type="password"
+            icon="lock_reset"
+            value={passwordForm.confirmPassword}
+            onChange={handlePasswordChange('confirmPassword')}
+            error={passwordErrors.confirmPassword}
+          />
         </FormSection>
-        <div className="mt-4 flex items-center justify-end border-t border-outline-variant pt-4">
-          <Button>
+        <div className="mt-4 flex items-center justify-end gap-3 border-t border-outline-variant pt-4">
+          {passwordErrors.form && (
+            <span className="flex items-center gap-1.5 text-sm text-error">
+              <Icon name="error" className="text-base" />
+              {passwordErrors.form}
+            </span>
+          )}
+          {passwordSaved && (
+            <span className="flex items-center gap-1.5 text-sm text-emerald-500">
+              <Icon name="check_circle" filled className="text-base" />
+              Password updated
+            </span>
+          )}
+          <Button onClick={handleUpdatePassword} disabled={passwordSaving}>
             <Icon name="save" className="text-base" />
-            Update Password
+            {passwordSaving ? 'Updating...' : 'Update Password'}
           </Button>
         </div>
       </Card>

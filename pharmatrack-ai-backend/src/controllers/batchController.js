@@ -2,7 +2,10 @@ import Batch from '../models/Batch.js';
 import Medicine from '../models/Medicine.js';
 import { ApiError } from '../utils/ApiError.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
-import { searchRegex } from '../utils/queryHelpers.js';
+import { searchRegex, paginateResults } from '../utils/queryHelpers.js';
+import { pick } from '../utils/pick.js';
+
+const UPDATABLE_FIELDS = ['batchNumber', 'medicineId', 'medicineName', 'facility', 'quantity', 'unitType', 'mfgDate', 'expDate'];
 
 // GET /api/batches?medicineId=&status=&facility=&search=
 export const getBatches = asyncHandler(async (req, res) => {
@@ -25,7 +28,7 @@ export const getBatches = asyncHandler(async (req, res) => {
     results = results.filter((batch) => batch.status === status);
   }
 
-  res.json(results);
+  res.json(paginateResults(results, req.query));
 });
 
 // GET /api/batches/:id
@@ -57,7 +60,7 @@ export const updateBatch = asyncHandler(async (req, res) => {
     throw new ApiError(404, `Batch with id "${req.params.id}" not found.`, 'NOT_FOUND');
   }
 
-  Object.assign(batch, req.body);
+  Object.assign(batch, pick(req.body, UPDATABLE_FIELDS));
   await batch.save();
   res.json(batch.toJSON());
 });

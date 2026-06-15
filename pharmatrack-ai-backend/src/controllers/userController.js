@@ -1,9 +1,13 @@
 import User from '../models/User.js';
 import { ApiError } from '../utils/ApiError.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
-import { searchRegex } from '../utils/queryHelpers.js';
+import { searchRegex, paginateResults } from '../utils/queryHelpers.js';
+import { pick } from '../utils/pick.js';
 
 const DEFAULT_TEMP_PASSWORD = 'changeme123';
+
+// Excludes password (changed via a dedicated endpoint) and Mongo-managed fields (_id, timestamps).
+const UPDATABLE_FIELDS = ['name', 'email', 'role', 'title', 'avatarUrl', 'bio', 'facility', 'status'];
 
 // GET /api/users?role=&status=&search=
 export const getUsers = asyncHandler(async (req, res) => {
@@ -19,7 +23,7 @@ export const getUsers = asyncHandler(async (req, res) => {
   }
 
   const users = await User.find(filter).sort({ createdAt: -1 });
-  res.json(users.map((user) => user.toJSON()));
+  res.json(paginateResults(users.map((user) => user.toJSON()), req.query));
 });
 
 // POST /api/users
@@ -47,7 +51,7 @@ export const updateUser = asyncHandler(async (req, res) => {
     throw new ApiError(404, `User with id "${req.params.id}" not found.`, 'NOT_FOUND');
   }
 
-  Object.assign(user, req.body);
+  Object.assign(user, pick(req.body, UPDATABLE_FIELDS));
   await user.save();
   res.json(user.toJSON());
 });

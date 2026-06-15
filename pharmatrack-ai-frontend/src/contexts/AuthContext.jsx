@@ -31,6 +31,12 @@ export function AuthProvider({ children }) {
     setUser(null);
   };
 
+  const updateUser = async (payload) => {
+    const updatedUser = await authService.updateProfile(payload);
+    setUser(updatedUser);
+    return updatedUser;
+  };
+
   const hasRole = (...roles) => {
     if (!user) return false;
     const allowed = roles.flat();
@@ -43,6 +49,7 @@ export function AuthProvider({ children }) {
     isInitializing: false,
     login,
     logout,
+    updateUser,
     hasRole,
   };
 

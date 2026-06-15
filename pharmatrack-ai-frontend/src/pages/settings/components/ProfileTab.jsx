@@ -9,7 +9,7 @@ import TextAreaField from '@/components/forms/TextAreaField';
 import { useAuth } from '@/hooks/useAuth';
 
 export default function ProfileTab() {
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
   const [form, setForm] = useState({
     name: user?.name ?? '',
     email: user?.email ?? '',
@@ -18,15 +18,26 @@ export default function ProfileTab() {
     bio: user?.bio ?? '',
   });
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
 
   const handleChange = (field) => (event) => {
     setForm((prev) => ({ ...prev, [field]: event.target.value }));
     setSaved(false);
   };
 
-  const handleSave = (event) => {
+  const handleSave = async (event) => {
     event.preventDefault();
-    setSaved(true);
+    setError('');
+    setSaving(true);
+    try {
+      await updateUser(form);
+      setSaved(true);
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to save changes.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -61,15 +72,21 @@ export default function ProfileTab() {
         </FormSection>
 
         <div className="flex items-center justify-end gap-3 border-t border-outline-variant pt-4">
-          {saved && (
+          {error && (
+            <span className="flex items-center gap-1.5 text-sm text-error">
+              <Icon name="error" className="text-base" />
+              {error}
+            </span>
+          )}
+          {saved && !error && (
             <span className="flex items-center gap-1.5 text-sm text-emerald-500">
               <Icon name="check_circle" filled className="text-base" />
               Saved
             </span>
           )}
-          <Button type="submit">
+          <Button type="submit" disabled={saving}>
             <Icon name="save" className="text-base" />
-            Save Changes
+            {saving ? 'Saving...' : 'Save Changes'}
           </Button>
         </div>
       </form>

@@ -27,9 +27,12 @@ PharmaTrackAI/
 This starts MongoDB, the backend API, and the frontend together — no local Node.js install needed.
 
 ```bash
-cp .env.example .env   # optional: customize JWT_SECRET, GEMINI_API_KEY, etc.
+cp .env.example .env   # set JWT_SECRET, optionally GEMINI_API_KEY, etc.
 docker compose up -d --build
 ```
+
+> The backend runs with `NODE_ENV=production` in Compose and refuses to start if `JWT_SECRET`
+> is left at its `change_this_secret` placeholder — set a real value in your root `.env` first.
 
 - Frontend: http://localhost:5173
 - Backend API: http://localhost:5000/api
@@ -58,7 +61,10 @@ cp .env.example .env
 
 Edit `.env`:
 - `MONGO_URI` — point to your local, Docker, or Atlas MongoDB instance
-- `JWT_SECRET` — set to any long random string
+- `JWT_SECRET` — set to any long random string (the server warns if left at the
+  `change_this_secret` placeholder, and refuses to start with that placeholder when `NODE_ENV=production`)
+- `CLIENT_URL` — comma-separated list of allowed frontend origins for CORS; requests from
+  other origins are rejected (and the server warns at startup if this is left empty)
 - `GEMINI_API_KEY` — optional; AI features fall back to deterministic responses if left blank
 
 ```bash
@@ -113,7 +119,7 @@ use the default temporary password `changeme123`.
 
 **Frontend:** React 19, Vite, Tailwind CSS, React Router, Recharts, Axios
 
-**Backend:** Node.js, Express, MongoDB/Mongoose, JWT, bcryptjs, Google Generative AI (Gemini)
+**Backend:** Node.js, Express, MongoDB/Mongoose, JWT, bcryptjs, Helmet, express-rate-limit, Google Generative AI (Gemini)
 
 **Infrastructure:** Docker, Docker Compose, Nginx (serves the built frontend)
 
@@ -131,6 +137,44 @@ Base URL: `http://localhost:5000/api`
 | `/reports` | Inventory, expiry, and stock movement reports |
 | `/ai` | AI forecasting, insights, and chat |
 
+### Pagination
+
+`GET /medicines`, `/batches`, `/inventory/transactions`, and `/users` support optional
+server-side pagination. By default they return a plain array (unchanged behavior). When
+both `page` and `limit` query params are provided (positive integers), they instead
+return:
+
+```json
+{
+  "data": [ /* page of results */ ],
+  "pagination": { "page": 1, "limit": 20, "total": 57, "totalPages": 3 }
+}
+```
+
+Example: `GET /api/medicines?page=2&limit=20`
+
+## Testing & CI
+
+Both projects have automated test suites that run in CI (`.github/workflows/ci.yml`)
+on every push and pull request to `main`/`master`:
+
+- **Backend** (`pharmatrack-ai-backend`): Vitest + Supertest against the Express app,
+  with `mongodb-memory-server` providing an isolated, ephemeral MongoDB — no Docker or
+  real database needed. Covers auth, RBAC, mass-assignment protection, pagination, AI
+  chat history capping, and security headers/rate limiting.
+- **Frontend** (`pharmatrack-ai-frontend`): Vitest + React Testing Library, covering
+  `decodeToken`, formatting utilities, and the `AuthContext` (login/logout/session
+  restore/role checks).
+
+Run locally:
+
+```bash
+cd pharmatrack-ai-backend && npm test
+cd pharmatrack-ai-frontend && npm test
+```
+
+The CI workflow also runs `npm run lint` and `npm run build` for the frontend.
+
 ## Scripts Reference
 
 **Frontend** (`pharmatrack-ai-frontend/`):
@@ -138,11 +182,15 @@ Base URL: `http://localhost:5000/api`
 - `npm run build` — production build
 - `npm run lint` — run ESLint
 - `npm run preview` — preview the production build
+- `npm test` — run the Vitest test suite once
+- `npm run test:watch` — run tests in watch mode
 
 **Backend** (`pharmatrack-ai-backend/`):
 - `npm run dev` — start the API with nodemon (auto-restart)
 - `npm start` — start the API
 - `npm run seed` — seed MongoDB with sample data and users
+- `npm test` — run the Vitest test suite once (uses an in-memory MongoDB, no setup needed)
+- `npm run test:watch` — run tests in watch mode
 
 ## Docker Compose Reference
 

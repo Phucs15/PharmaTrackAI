@@ -3,7 +3,7 @@ import Batch from '../models/Batch.js';
 import Medicine from '../models/Medicine.js';
 import { ApiError } from '../utils/ApiError.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
-import { searchRegex } from '../utils/queryHelpers.js';
+import { searchRegex, paginateResults } from '../utils/queryHelpers.js';
 
 // GET /api/inventory/transactions?type=&medicineId=&search=
 export const getTransactionHistory = asyncHandler(async (req, res) => {
@@ -24,7 +24,7 @@ export const getTransactionHistory = asyncHandler(async (req, res) => {
   }
 
   const transactions = await Transaction.find(filter).sort({ date: -1 });
-  res.json(transactions.map((txn) => txn.toJSON()));
+  res.json(paginateResults(transactions.map((txn) => txn.toJSON()), req.query));
 });
 
 async function resolveMedicineName(payload) {

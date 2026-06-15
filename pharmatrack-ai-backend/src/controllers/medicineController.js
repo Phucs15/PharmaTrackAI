@@ -1,7 +1,21 @@
 import Medicine from '../models/Medicine.js';
 import { ApiError } from '../utils/ApiError.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
-import { searchRegex } from '../utils/queryHelpers.js';
+import { searchRegex, paginateResults } from '../utils/queryHelpers.js';
+import { pick } from '../utils/pick.js';
+
+const UPDATABLE_FIELDS = [
+  'code',
+  'name',
+  'category',
+  'manufacturer',
+  'unitType',
+  'unitPrice',
+  'totalStock',
+  'reorderLevel',
+  'storageNotes',
+  'stockByFacility',
+];
 
 // GET /api/medicines?category=&search=
 export const getMedicines = asyncHandler(async (req, res) => {
@@ -18,7 +32,7 @@ export const getMedicines = asyncHandler(async (req, res) => {
   }
 
   const medicines = await Medicine.find(filter).sort({ createdAt: -1 });
-  res.json(medicines.map((med) => med.toJSON()));
+  res.json(paginateResults(medicines.map((med) => med.toJSON()), req.query));
 });
 
 // GET /api/medicines/:id
@@ -43,7 +57,7 @@ export const updateMedicine = asyncHandler(async (req, res) => {
     throw new ApiError(404, `Medicine with id "${req.params.id}" not found.`, 'NOT_FOUND');
   }
 
-  Object.assign(medicine, req.body);
+  Object.assign(medicine, pick(req.body, UPDATABLE_FIELDS));
   await medicine.save();
   res.json(medicine.toJSON());
 });
