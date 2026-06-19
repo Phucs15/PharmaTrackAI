@@ -3,6 +3,7 @@ import { ApiError } from '../utils/ApiError.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { searchRegex, paginateResults } from '../utils/queryHelpers.js';
 import { pick } from '../utils/pick.js';
+import { logAudit } from '../utils/audit.js';
 
 const UPDATABLE_FIELDS = [
   'code',
@@ -47,6 +48,7 @@ export const getMedicineById = asyncHandler(async (req, res) => {
 // POST /api/medicines
 export const createMedicine = asyncHandler(async (req, res) => {
   const medicine = await Medicine.create(req.body);
+  await logAudit(req, { action: 'CREATE', entity: 'Medicine', entityId: medicine._id, entityName: medicine.name });
   res.status(201).json(medicine.toJSON());
 });
 
@@ -59,6 +61,7 @@ export const updateMedicine = asyncHandler(async (req, res) => {
 
   Object.assign(medicine, pick(req.body, UPDATABLE_FIELDS));
   await medicine.save();
+  await logAudit(req, { action: 'UPDATE', entity: 'Medicine', entityId: medicine._id, entityName: medicine.name });
   res.json(medicine.toJSON());
 });
 
@@ -68,5 +71,6 @@ export const deleteMedicine = asyncHandler(async (req, res) => {
   if (!medicine) {
     throw new ApiError(404, `Medicine with id "${req.params.id}" not found.`, 'NOT_FOUND');
   }
+  await logAudit(req, { action: 'DELETE', entity: 'Medicine', entityId: medicine._id, entityName: medicine.name });
   res.json({ success: true });
 });

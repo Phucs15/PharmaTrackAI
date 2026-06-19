@@ -28,6 +28,10 @@ const CANNED_RESPONSES = [
 const DEFAULT_RESPONSE =
   "I'm continuously monitoring demand signals across all facilities. Ask me about reorder suggestions, risk analysis, or a specific medicine and I'll surface the latest forecast.";
 
+// In-memory forecast cache: avoids re-calling Gemini on every page load.
+const _forecastCache = new Map(); // key → { data, ts }
+const FORECAST_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
 let genAIClient = null;
 
 function isGeminiConfigured() {
@@ -42,51 +46,59 @@ function getClient() {
   return genAIClient;
 }
 
-async function callGemini(prompt) {
+async function callGemini(prompt, timeoutMs = 15000) {
   const client = getClient();
   if (!client) return null;
 
-  const model = client.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-1.5-flash' });
-  const result = await model.generateContent(prompt);
+  const model = client.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.5-flash' });
+  const timeout = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error('Gemini request timed out')), timeoutMs)
+  );
+  const result = await Promise.race([model.generateContent(prompt), timeout]);
   return result.response.text();
 }
 
-/** Snapshot of real inventory data used to ground AI prompts and fallbacks. */
+/** Snapshot of real inventory data used to ground AI prompts and fallbacks.
+ *  Context is deliberately small to keep prompt tokens low and Gemini latency fast. */
 export async function buildInventoryContext() {
-  const medicines = (await Medicine.find()).map((med) => med.toJSON());
-  const batches = (await Batch.find()).map((batch) => batch.toJSON());
-  const recentTransactions = (await Transaction.find().sort({ date: -1 }).limit(20)).map((txn) =>
-    txn.toJSON()
-  );
+  const [medicines, batches, recentTransactions] = await Promise.all([
+    Medicine.find().lean(),
+    Batch.find().lean(),
+    Transaction.find().sort({ date: -1 }).limit(20).lean(),
+  ]);
 
   const lowStock = medicines
-    .filter((med) => med.status === 'Critical Low' || med.status === 'Reorder Soon')
+    .filter((med) => {
+      const status = med.totalStock <= med.reorderLevel * 0.5 ? 'Critical Low'
+        : med.totalStock <= med.reorderLevel ? 'Reorder Soon' : 'Optimal';
+      return status !== 'Optimal';
+    })
+    .slice(0, 8) // cap at 8 — enough signal without bloating the prompt
     .map((med) => ({
-      id: med.id,
       code: med.code,
       name: med.name,
       totalStock: med.totalStock,
       reorderLevel: med.reorderLevel,
-      status: med.status,
     }));
 
+  const now = Date.now();
   const riskyBatches = batches
-    .filter((batch) => batch.status === 'Near Expiry' || batch.status === 'Expired')
-    .map((batch) => ({
-      batchNumber: batch.batchNumber,
-      medicineName: batch.medicineName,
-      facility: batch.facility,
-      quantity: batch.quantity,
-      expDate: batch.expDate,
-      status: batch.status,
+    .filter((b) => b.expDate && new Date(b.expDate).getTime() < now + 90 * 24 * 60 * 60 * 1000)
+    .slice(0, 5)
+    .map((b) => ({
+      batchNumber: b.batchNumber,
+      medicineName: b.medicineName,
+      facility: b.facility,
+      quantity: b.quantity,
+      expDate: b.expDate,
     }));
 
   const totalInbound = recentTransactions
-    .filter((txn) => txn.type === 'IN')
-    .reduce((sum, txn) => sum + (txn.quantity || 0), 0);
+    .filter((t) => t.type === 'IN')
+    .reduce((sum, t) => sum + (t.quantity || 0), 0);
   const totalOutbound = recentTransactions
-    .filter((txn) => txn.type === 'OUT')
-    .reduce((sum, txn) => sum + (txn.quantity || 0), 0);
+    .filter((t) => t.type === 'OUT')
+    .reduce((sum, t) => sum + (t.quantity || 0), 0);
 
   return {
     medicineCount: medicines.length,
@@ -200,35 +212,35 @@ function parseForecastResponse(raw) {
 
 /** Returns a ForecastResult, using Gemini when configured and falling back to a deterministic result derived from real inventory data. */
 export async function generateForecast(medicineId) {
-  const context = await buildInventoryContext();
+  const cacheKey = medicineId || 'global';
+  const cached = _forecastCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < FORECAST_TTL_MS) {
+    return cached.data;
+  }
 
-  let focusMedicine = null;
-  if (medicineId) {
-    const medicine = await Medicine.findById(medicineId).catch(() => null);
-    if (medicine) {
-      const json = medicine.toJSON();
-      focusMedicine = {
-        id: json.id,
-        code: json.code,
-        name: json.name,
-        totalStock: json.totalStock,
-        reorderLevel: json.reorderLevel,
-        status: json.status,
-      };
+  const [context, focusMedicine] = await Promise.all([
+    buildInventoryContext(),
+    medicineId
+      ? Medicine.findById(medicineId).lean().catch(() => null).then((med) =>
+          med ? { code: med.code, name: med.name, totalStock: med.totalStock, reorderLevel: med.reorderLevel } : null
+        )
+      : Promise.resolve(null),
+  ]);
+
+  let result;
+  if (!isGeminiConfigured()) {
+    result = buildFallbackForecast(context, focusMedicine);
+  } else {
+    try {
+      const raw = await callGemini(buildForecastPrompt(context, focusMedicine));
+      result = parseForecastResponse(raw) || buildFallbackForecast(context, focusMedicine);
+    } catch {
+      result = buildFallbackForecast(context, focusMedicine);
     }
   }
 
-  if (!isGeminiConfigured()) {
-    return buildFallbackForecast(context, focusMedicine);
-  }
-
-  try {
-    const raw = await callGemini(buildForecastPrompt(context, focusMedicine));
-    const parsed = parseForecastResponse(raw);
-    return parsed || buildFallbackForecast(context, focusMedicine);
-  } catch {
-    return buildFallbackForecast(context, focusMedicine);
-  }
+  _forecastCache.set(cacheKey, { data: result, ts: Date.now() });
+  return result;
 }
 
 /** Returns just the `insights` array of the current forecast. */

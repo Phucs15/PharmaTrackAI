@@ -1,8 +1,6 @@
 # PharmaTrack AI
 
-PharmaTrack AI is a pharmacy/warehouse inventory management system with AI-powered
-forecasting and insights. It consists of a React frontend and a Node.js/Express/MongoDB
-backend with JWT authentication, role-based access control, and Gemini AI integration.
+A pharmacy/warehouse inventory management system with AI-powered forecasting and insights. Built with React + Vite on the frontend and Node.js/Express/MongoDB on the backend, with JWT authentication, refresh-token rotation, role-based access control, audit logging, and Gemini AI integration.
 
 ## Project Structure
 
@@ -18,37 +16,46 @@ PharmaTrackAI/
 
 - [Node.js](https://nodejs.org/) 18+ and npm
 - A MongoDB instance — any of:
-  - [Docker](https://www.docker.com/): `docker run -d --name pharmatrack-mongo -p 27017:27017 -v pharmatrack-mongo-data:/data/db mongo:7`
+  - **Docker (easiest):** `docker run -d --name pharmatrack-mongo -p 27017:27017 -v pharmatrack-mongo-data:/data/db mongo:7`
   - [MongoDB Community Server](https://www.mongodb.com/try/download/community) installed locally
-  - A [MongoDB Atlas](https://www.mongodb.com/cloud/atlas) connection string
+  - A [MongoDB Atlas](https://www.mongodb.com/cloud/atlas) free-tier cluster
+
+---
 
 ## Run with Docker Compose (recommended)
 
-This starts MongoDB, the backend API, and the frontend together — no local Node.js install needed.
+Starts MongoDB, the backend API, and the Nginx-served frontend together — no local Node.js install needed.
 
 ```bash
-cp .env.example .env   # set JWT_SECRET, optionally GEMINI_API_KEY, etc.
+cp .env.example .env        # fill in JWT_SECRET, optionally GEMINI_API_KEY
 docker compose up -d --build
 ```
 
-> The backend runs with `NODE_ENV=production` in Compose and refuses to start if `JWT_SECRET`
-> is left at its `change_this_secret` placeholder — set a real value in your root `.env` first.
+> The backend runs with `NODE_ENV=production` in Compose and **refuses to start** if `JWT_SECRET` is still set to the `change_this_secret` placeholder. Set a real secret in `.env` before starting.
 
-- Frontend: http://localhost:5173
-- Backend API: http://localhost:5000/api
-- MongoDB: localhost:27017 (data persisted in the `pharmatrack-mongo-data` volume)
+| Service  | URL |
+|----------|-----|
+| Frontend | http://localhost:5173 |
+| Backend API | http://localhost:5000/api |
+| MongoDB  | localhost:27017 (data in volume `pharmatrack-mongo-data`) |
 
-Seed the database with sample medicines, batches, and users (one-time, or whenever you want to reset the data):
+**Seed the database** with sample data (run once, or any time you want to reset):
 
 ```bash
 docker compose exec backend npm run seed
 ```
 
+**Fetch real drug names** from OpenFDA (optional — adds up to 80 medicines per run):
+
+```bash
+docker compose exec backend npm run seed:medicines
+docker compose exec backend npm run seed:medicines -- --limit 5   # 5 per category
+docker compose exec backend npm run seed:medicines -- --clear     # clear first, then fetch
+```
+
 To stop everything: `docker compose down` (add `-v` to also delete the MongoDB volume).
 
-> If you previously started MongoDB with a standalone `docker run --name pharmatrack-mongo ...` command,
-> stop and remove that container first (`docker rm -f pharmatrack-mongo`) so Compose can manage it —
-> the same `pharmatrack-mongo-data` volume will be reused, so seeded data is preserved.
+---
 
 ## Manual Setup (without Docker)
 
@@ -57,116 +64,138 @@ To stop everything: `docker compose down` (add `-v` to also delete the MongoDB v
 ```bash
 cd pharmatrack-ai-backend
 cp .env.example .env
-```
-
-Edit `.env`:
-- `MONGO_URI` — point to your local, Docker, or Atlas MongoDB instance
-- `JWT_SECRET` — set to any long random string (the server warns if left at the
-  `change_this_secret` placeholder, and refuses to start with that placeholder when `NODE_ENV=production`)
-- `CLIENT_URL` — comma-separated list of allowed frontend origins for CORS; requests from
-  other origins are rejected (and the server warns at startup if this is left empty)
-- `GEMINI_API_KEY` — optional; AI features fall back to deterministic responses if left blank
-
-```bash
 npm install
-npm run seed   # populates sample medicines, batches, transactions, and users
-npm run dev    # starts the API on http://localhost:5000
+npm run seed      # seed sample medicines, batches, transactions, and users
+npm run dev       # starts the API on http://localhost:5000
 ```
+
+**Environment variables** (edit `pharmatrack-ai-backend/.env`):
+
+| Variable | Required | Description |
+|---|---|---|
+| `MONGO_URI` | Yes | MongoDB connection string |
+| `JWT_SECRET` | Yes | Secret for signing access tokens (any long random string) |
+| `JWT_REFRESH_SECRET` | No | Separate secret for refresh tokens — falls back to `JWT_SECRET` if unset |
+| `JWT_EXPIRES_IN` | No | Access token lifetime (default `15m`) |
+| `CLIENT_URL` | Yes | Comma-separated allowed frontend origins for CORS (e.g. `http://localhost:5173`) — requests from other origins are rejected |
+| `GEMINI_API_KEY` | No | Google Gemini API key — AI features use deterministic fallbacks if unset |
+
+> **Production note:** The server warns at startup if `JWT_SECRET` is the placeholder, and refuses to start entirely in `NODE_ENV=production`.
 
 ### 2. Frontend
 
 ```bash
 cd pharmatrack-ai-frontend
-cp .env.example .env
-```
-
-`VITE_API_BASE_URL` defaults to `http://localhost:5000/api`, matching the backend above.
-
-```bash
+cp .env.example .env     # VITE_API_BASE_URL defaults to http://localhost:5000/api
 npm install
 npm run dev
 ```
 
 Open the URL printed in the terminal (default `http://localhost:5173`).
 
+---
+
 ## Default Seeded Accounts
 
-After running `npm run seed` in the backend, you can log in with:
-
 | Role | Email | Password |
-| --- | --- | --- |
+|---|---|---|
 | Administrator | admin@pharmatrack.com | admin123 |
 | Warehouse Manager | manager@pharmatrack.com | manager123 |
 | Warehouse Staff | staff@pharmatrack.com | staff123 |
 
-Additional seeded users (`s.jenkins@`, `m.chen@`, `e.diaz@`, `j.wilson@pharmatrack.com`)
-use the default temporary password `changeme123`.
+Additional seeded users (`s.jenkins@`, `m.chen@`, `e.diaz@`, `j.wilson@pharmatrack.com`) use the default temporary password `changeme123`.
+
+---
 
 ## Features
 
 - **Dashboard** — key inventory and expiry metrics at a glance
-- **Medicine & Batch Management** — CRUD for medicines and their batches
-- **Inventory In/Out** — track stock movements
-- **Expiry Monitoring** — surface medicines nearing or past expiry
+- **Medicine & Batch Management** — full CRUD for medicines and batches with per-facility stock tracking
+- **Inventory In/Out** — record stock movements; updates batch quantity and per-facility medicine stock atomically
+- **Expiry Monitoring** — surfaces medicines nearing or past expiry
 - **Reports** — inventory summary, expiry, and stock movement reports with export
-- **AI Forecasting & Insights** — Gemini-powered demand forecasts, insights, and chat
-  (works with deterministic fallbacks if no `GEMINI_API_KEY` is configured)
-- **User Management** — admin-only user CRUD with role-based access control
-- **Authentication** — JWT-based login with role-based permissions (Administrator,
-  Warehouse Manager, Warehouse Staff)
+- **AI Forecasting & Insights** — Gemini-powered demand forecasts, insights, and chat; graceful deterministic fallbacks when no API key is configured; per-user chat history with a 50-message cap
+- **User Management** — admin-only user CRUD with role-based access control (Administrator, Warehouse Manager, Warehouse Staff)
+- **Authentication** — short-lived JWT access tokens (15 min, stored in JS memory) + long-lived refresh tokens (30 days, HttpOnly cookie); silent token rotation on expiry; concurrent-request deduplication via a shared refresh promise
+- **Password Reset** — forgot-password flow: generates a one-time SHA-256-hashed token stored in the database; reset URL logged to the console in development (plug in nodemailer for production email delivery)
+- **Profile & Password Settings** — users can update their profile and change their password from the Settings page; changing password does not trigger a global logout
+- **Audit Log** — immutable record of `LOGIN`, `CREATE`, `UPDATE`, `DELETE`, `PASSWORD_CHANGE`, and `PASSWORD_RESET` actions; queryable by admins with entity/action/user filters and pagination
+
+---
 
 ## Tech Stack
 
-**Frontend:** React 19, Vite, Tailwind CSS, React Router, Recharts, Axios
+**Frontend:** React 19, Vite, Tailwind CSS, React Router, Recharts, Axios (with silent-refresh interceptor)
 
-**Backend:** Node.js, Express, MongoDB/Mongoose, JWT, bcryptjs, Helmet, express-rate-limit, Google Generative AI (Gemini)
+**Backend:** Node.js, Express, MongoDB/Mongoose, JSON Web Tokens, bcryptjs, cookie-parser, Helmet, express-rate-limit, Google Generative AI (Gemini)
 
-**Infrastructure:** Docker, Docker Compose, Nginx (serves the built frontend)
+**Infrastructure:** Docker, Docker Compose, Nginx (SPA-mode frontend serving with asset caching)
+
+---
 
 ## API Overview
 
 Base URL: `http://localhost:5000/api`
 
-| Route | Description |
-| --- | --- |
-| `/auth` | Login, current user |
-| `/medicines` | Medicine catalog CRUD |
-| `/batches` | Batch CRUD |
-| `/inventory` | Stock in/out transactions |
-| `/users` | User management (admin only) |
-| `/reports` | Inventory, expiry, and stock movement reports |
-| `/ai` | AI forecasting, insights, and chat |
+### Authentication (`/auth`)
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| POST | `/auth/login` | — | Authenticate; sets refresh-token cookie, returns access token |
+| POST | `/auth/register` | — | Self-register (role fixed to Warehouse Staff) |
+| POST | `/auth/refresh` | cookie | Rotate refresh token, return new access token |
+| POST | `/auth/logout` | — | Clear refresh-token cookie |
+| POST | `/auth/forgot-password` | — | Generate password-reset token (rate-limited) |
+| POST | `/auth/reset-password` | — | Consume token, set new password (rate-limited) |
+| GET | `/auth/me` | JWT | Return current user profile |
+| PUT | `/auth/me` | JWT | Update profile (name, email, title, bio, facility, avatarUrl) |
+| PUT | `/auth/password` | JWT | Change password (requires current password) |
+
+### Resources
+
+| Route | Roles | Description |
+|---|---|---|
+| `/medicines` | All (write: Manager+) | Medicine catalog CRUD |
+| `/batches` | All (write: Manager+) | Batch CRUD |
+| `/inventory` | All (write: Staff+) | Stock in/out transactions |
+| `/users` | Admin only | User management CRUD |
+| `/reports` | All | Inventory, expiry, and stock movement reports |
+| `/ai` | All | AI forecasting, insights, and chat (rate-limited) |
+| `/audit` | Admin only | Immutable audit log (filterable, paginated) |
 
 ### Pagination
 
-`GET /medicines`, `/batches`, `/inventory/transactions`, and `/users` support optional
-server-side pagination. By default they return a plain array (unchanged behavior). When
-both `page` and `limit` query params are provided (positive integers), they instead
-return:
+`GET /medicines`, `/batches`, `/inventory/transactions`, and `/users` support optional server-side pagination — they return a plain array by default. Pass both `page` and `limit` (positive integers) to get a paginated response:
 
 ```json
 {
-  "data": [ /* page of results */ ],
+  "data": [ /* items */ ],
   "pagination": { "page": 1, "limit": 20, "total": 57, "totalPages": 3 }
 }
 ```
 
 Example: `GET /api/medicines?page=2&limit=20`
 
+### Audit Log
+
+`GET /audit` (admin only). Supported query parameters:
+
+| Param | Example | Description |
+|---|---|---|
+| `entity` | `Medicine` | Filter by entity type |
+| `action` | `DELETE` | Filter by action (`CREATE`, `UPDATE`, `DELETE`, `LOGIN`, `PASSWORD_CHANGE`, `PASSWORD_RESET`) |
+| `userId` | `<ObjectId>` | Filter by user |
+| `page` / `limit` | `1` / `50` | Pagination (max 500 per page) |
+
+---
+
 ## Testing & CI
 
-Both projects have automated test suites that run in CI (`.github/workflows/ci.yml`)
-on every push and pull request to `main`/`master`:
+Both projects have automated test suites that run in CI (`.github/workflows/ci.yml`) on every push and pull request to `main`/`master`.
 
-- **Backend** (`pharmatrack-ai-backend`): Vitest + Supertest against the Express app,
-  with `mongodb-memory-server` providing an isolated, ephemeral MongoDB — no Docker or
-  real database needed. Covers auth, RBAC, mass-assignment protection, pagination, AI
-  chat history capping, and security headers/rate limiting.
-- **Frontend** (`pharmatrack-ai-frontend`): Vitest + React Testing Library, covering
-  `decodeToken`, formatting utilities, and the `AuthContext` (login/logout/session
-  restore/role checks).
+**Backend** — Vitest + Supertest + `mongodb-memory-server` (no Docker or real MongoDB needed). Covers auth (login, register, refresh, forgot/reset password), RBAC, mass-assignment protection, audit log, pagination, AI chat history capping, and security headers/rate limiting. **56 tests.**
 
-Run locally:
+**Frontend** — Vitest + React Testing Library + jsdom. Covers `decodeToken`, formatting utilities, `AuthContext` (async init, login/logout/session-restore/role checks), `LoginPage`, and `ForgotPasswordPage`. **39 tests.**
 
 ```bash
 cd pharmatrack-ai-backend && npm test
@@ -175,30 +204,51 @@ cd pharmatrack-ai-frontend && npm test
 
 The CI workflow also runs `npm run lint` and `npm run build` for the frontend.
 
+---
+
 ## Scripts Reference
 
-**Frontend** (`pharmatrack-ai-frontend/`):
-- `npm run dev` — start the Vite dev server
-- `npm run build` — production build
-- `npm run lint` — run ESLint
-- `npm run preview` — preview the production build
-- `npm test` — run the Vitest test suite once
-- `npm run test:watch` — run tests in watch mode
+### Frontend (`pharmatrack-ai-frontend/`)
 
-**Backend** (`pharmatrack-ai-backend/`):
-- `npm run dev` — start the API with nodemon (auto-restart)
-- `npm start` — start the API
-- `npm run seed` — seed MongoDB with sample data and users
-- `npm test` — run the Vitest test suite once (uses an in-memory MongoDB, no setup needed)
-- `npm run test:watch` — run tests in watch mode
+| Script | Description |
+|---|---|
+| `npm run dev` | Start the Vite dev server |
+| `npm run build` | Production build |
+| `npm run lint` | Run ESLint |
+| `npm run preview` | Preview the production build locally |
+| `npm test` | Run the Vitest suite once |
+| `npm run test:watch` | Run tests in watch mode |
+
+### Backend (`pharmatrack-ai-backend/`)
+
+| Script | Description |
+|---|---|
+| `npm run dev` | Start the API with nodemon (auto-restart on changes) |
+| `npm start` | Start the API |
+| `npm run seed` | Seed MongoDB with sample medicines, batches, transactions, and users |
+| `npm run seed:medicines` | Fetch real drug names from OpenFDA NDC API and insert into MongoDB |
+| `npm test` | Run the Vitest suite once (in-memory MongoDB, no setup needed) |
+| `npm run test:watch` | Run tests in watch mode |
+
+`seed:medicines` options (pass after `--`):
+
+```bash
+npm run seed:medicines -- --limit 5    # fetch 5 drugs per category (default 10)
+npm run seed:medicines -- --clear      # clear existing medicines first, then fetch
+```
+
+---
 
 ## Docker Compose Reference
 
 Run from the project root:
 
-- `docker compose up -d --build` — build images and start `mongo`, `backend`, `frontend`
-- `docker compose ps` — list running containers and their ports
-- `docker compose logs -f [service]` — tail logs (`mongo`, `backend`, or `frontend`)
-- `docker compose exec backend npm run seed` — seed/reset the database
-- `docker compose restart backend` — restart a service (e.g. after editing `.env`)
-- `docker compose down` — stop and remove containers (add `-v` to also delete the MongoDB volume)
+| Command | Description |
+|---|---|
+| `docker compose up -d --build` | Build images and start `mongo`, `backend`, `frontend` |
+| `docker compose ps` | List running containers and ports |
+| `docker compose logs -f [service]` | Tail logs for `mongo`, `backend`, or `frontend` |
+| `docker compose exec backend npm run seed` | Seed/reset the database |
+| `docker compose exec backend npm run seed:medicines` | Fetch real drug names from OpenFDA |
+| `docker compose restart backend` | Restart a service (e.g. after editing `.env`) |
+| `docker compose down` | Stop and remove containers (add `-v` to also delete the MongoDB volume) |

@@ -7,18 +7,9 @@ import * as authService from '@/services/authService';
 
 vi.mock('@/services/authService');
 
-function encodeSegment(value) {
-  const json = JSON.stringify(value);
-  const base64 = btoa(unescape(encodeURIComponent(json)));
-  return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-function makeToken(payload) {
-  return `${encodeSegment({ alg: 'HS256', typ: 'JWT' })}.${encodeSegment(payload)}.signature`;
-}
-
 function TestConsumer() {
-  const { user, isAuthenticated, login, logout, updateUser, hasRole } = useAuth();
+  const { user, isAuthenticated, isInitializing, login, logout, updateUser, hasRole } = useAuth();
+  if (isInitializing) return <div data-testid="init">initializing</div>;
   return (
     <div>
       <div data-testid="user">{user ? user.name : 'none'}</div>
@@ -41,51 +32,57 @@ function renderWithProvider() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  authService.getCurrentUser.mockReturnValue(null);
+  authService.logout.mockResolvedValue(undefined);
 });
 
 describe('AuthProvider', () => {
-  it('starts unauthenticated when localStorage is empty', () => {
-    authService.getToken.mockReturnValue(null);
+  it('starts unauthenticated when refresh token is absent/invalid', async () => {
     authService.getCurrentUser.mockReturnValue(null);
+    authService.refreshToken.mockRejectedValue(new Error('No cookie'));
 
     renderWithProvider();
 
+    // Wait past isInitializing
+    await waitFor(() => expect(screen.queryByTestId('init')).toBeNull());
     expect(screen.getByTestId('authenticated').textContent).toBe('false');
     expect(screen.getByTestId('user').textContent).toBe('none');
   });
 
-  it('clears a stale session when the stored token is expired', () => {
-    const expiredToken = makeToken({ sub: 'user-1', exp: Math.floor(Date.now() / 1000) - 60 });
-    authService.getToken.mockReturnValue(expiredToken);
-    authService.getCurrentUser.mockReturnValue({ id: 'user-1', name: 'Admin', role: 'Administrator' });
+  it('restores the session when the refresh token cookie is valid', async () => {
+    authService.refreshToken.mockResolvedValue({
+      token: 'new-access-token',
+      user: { id: 'user-1', name: 'Admin', role: 'Administrator' },
+    });
 
     renderWithProvider();
 
-    expect(authService.logout).toHaveBeenCalled();
-    expect(screen.getByTestId('authenticated').textContent).toBe('false');
-  });
-
-  it('restores the session when the stored token is valid', () => {
-    const validToken = makeToken({ sub: 'user-1', exp: Math.floor(Date.now() / 1000) + 3600 });
-    authService.getToken.mockReturnValue(validToken);
-    authService.getCurrentUser.mockReturnValue({ id: 'user-1', name: 'Admin', role: 'Administrator' });
-
-    renderWithProvider();
-
+    await waitFor(() => expect(screen.queryByTestId('init')).toBeNull());
     expect(screen.getByTestId('authenticated').textContent).toBe('true');
     expect(screen.getByTestId('user').textContent).toBe('Admin');
     expect(screen.getByTestId('has-admin').textContent).toBe('true');
   });
 
+  it('falls back to localStorage user if refreshToken does not return a user', async () => {
+    authService.getCurrentUser.mockReturnValue({ id: 'user-1', name: 'Cached User', role: 'Warehouse Staff' });
+    authService.refreshToken.mockResolvedValue({ token: 'new-token', user: null });
+
+    renderWithProvider();
+
+    await waitFor(() => expect(screen.queryByTestId('init')).toBeNull());
+    expect(screen.getByTestId('user').textContent).toBe('Cached User');
+  });
+
   it('login sets the user returned by authService.login', async () => {
-    authService.getToken.mockReturnValue(null);
-    authService.getCurrentUser.mockReturnValue(null);
+    authService.refreshToken.mockRejectedValue(new Error('No cookie'));
     authService.login.mockResolvedValue({
       user: { id: 'user-2', name: 'New User', role: 'Warehouse Staff' },
       token: 'tok',
     });
 
     renderWithProvider();
+    await waitFor(() => expect(screen.queryByTestId('init')).toBeNull());
+
     await userEvent.click(screen.getByText('login'));
 
     await waitFor(() => expect(screen.getByTestId('user').textContent).toBe('New User'));
@@ -93,26 +90,44 @@ describe('AuthProvider', () => {
   });
 
   it('logout clears the current user', async () => {
-    const validToken = makeToken({ sub: 'user-1', exp: Math.floor(Date.now() / 1000) + 3600 });
-    authService.getToken.mockReturnValue(validToken);
-    authService.getCurrentUser.mockReturnValue({ id: 'user-1', name: 'Admin', role: 'Administrator' });
+    authService.refreshToken.mockResolvedValue({
+      token: 'tok',
+      user: { id: 'user-1', name: 'Admin', role: 'Administrator' },
+    });
 
     renderWithProvider();
+    await waitFor(() => expect(screen.queryByTestId('init')).toBeNull());
+
     await userEvent.click(screen.getByText('logout'));
 
+    await waitFor(() => expect(screen.getByTestId('user').textContent).toBe('none'));
     expect(authService.logout).toHaveBeenCalled();
-    expect(screen.getByTestId('user').textContent).toBe('none');
   });
 
   it('updateUser applies the profile returned by authService.updateProfile', async () => {
-    const validToken = makeToken({ sub: 'user-1', exp: Math.floor(Date.now() / 1000) + 3600 });
-    authService.getToken.mockReturnValue(validToken);
-    authService.getCurrentUser.mockReturnValue({ id: 'user-1', name: 'Admin', role: 'Administrator' });
+    authService.refreshToken.mockResolvedValue({
+      token: 'tok',
+      user: { id: 'user-1', name: 'Admin', role: 'Administrator' },
+    });
     authService.updateProfile.mockResolvedValue({ id: 'user-1', name: 'Admin Updated', role: 'Administrator' });
 
     renderWithProvider();
+    await waitFor(() => expect(screen.queryByTestId('init')).toBeNull());
+
     await userEvent.click(screen.getByText('update'));
 
     await waitFor(() => expect(screen.getByTestId('user').textContent).toBe('Admin Updated'));
+  });
+
+  it('hasRole returns false for non-matching roles', async () => {
+    authService.refreshToken.mockResolvedValue({
+      token: 'tok',
+      user: { id: 'user-1', name: 'Staff', role: 'Warehouse Staff' },
+    });
+
+    renderWithProvider();
+    await waitFor(() => expect(screen.queryByTestId('init')).toBeNull());
+
+    expect(screen.getByTestId('has-admin').textContent).toBe('false');
   });
 });

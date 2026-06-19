@@ -4,6 +4,7 @@ import { ApiError } from '../utils/ApiError.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { searchRegex, paginateResults } from '../utils/queryHelpers.js';
 import { pick } from '../utils/pick.js';
+import { logAudit } from '../utils/audit.js';
 
 const UPDATABLE_FIELDS = ['batchNumber', 'medicineId', 'medicineName', 'facility', 'quantity', 'unitType', 'mfgDate', 'expDate'];
 
@@ -50,6 +51,7 @@ export const createBatch = asyncHandler(async (req, res) => {
   }
 
   const batch = await Batch.create(payload);
+  await logAudit(req, { action: 'CREATE', entity: 'Batch', entityId: batch._id, entityName: batch.batchNumber });
   res.status(201).json(batch.toJSON());
 });
 
@@ -62,6 +64,7 @@ export const updateBatch = asyncHandler(async (req, res) => {
 
   Object.assign(batch, pick(req.body, UPDATABLE_FIELDS));
   await batch.save();
+  await logAudit(req, { action: 'UPDATE', entity: 'Batch', entityId: batch._id, entityName: batch.batchNumber });
   res.json(batch.toJSON());
 });
 
@@ -71,5 +74,6 @@ export const deleteBatch = asyncHandler(async (req, res) => {
   if (!batch) {
     throw new ApiError(404, `Batch with id "${req.params.id}" not found.`, 'NOT_FOUND');
   }
+  await logAudit(req, { action: 'DELETE', entity: 'Batch', entityId: batch._id, entityName: batch.batchNumber });
   res.json({ success: true });
 });

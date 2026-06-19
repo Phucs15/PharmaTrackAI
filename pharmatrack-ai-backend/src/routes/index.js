@@ -6,6 +6,7 @@ import inventoryRoutes from './inventoryRoutes.js';
 import userRoutes from './userRoutes.js';
 import reportRoutes from './reportRoutes.js';
 import aiRoutes from './aiRoutes.js';
+import auditRoutes from './auditRoutes.js';
 
 const router = Router();
 
@@ -16,5 +17,6 @@ router.use('/inventory', inventoryRoutes);
 router.use('/users', userRoutes);
 router.use('/reports', reportRoutes);
 router.use('/ai', aiRoutes);
+router.use('/audit', auditRoutes);
 
 export default router;

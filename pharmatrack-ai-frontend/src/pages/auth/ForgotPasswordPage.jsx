@@ -2,14 +2,26 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import Icon from '@/components/common/Icon';
 import Button from '@/components/ui/Button';
+import { forgotPassword } from '@/services/authService';
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
-    setSubmitted(true);
+    setError('');
+    setLoading(true);
+    try {
+      await forgotPassword(email);
+      setSubmitted(true);
+    } catch (err) {
+      setError(err.response?.data?.message || 'Something went wrong. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -52,9 +64,14 @@ export default function ForgotPasswordPage() {
               />
             </div>
           </div>
-          <Button type="submit" className="w-full">
-            Send Reset Link
-            <Icon name="send" className="text-base" />
+
+          {error && (
+            <p className="rounded-lg bg-error/10 px-3 py-2 text-sm text-error">{error}</p>
+          )}
+
+          <Button type="submit" className="w-full" disabled={loading}>
+            {loading ? 'Sending…' : 'Send Reset Link'}
+            {!loading && <Icon name="send" className="text-base" />}
           </Button>
         </form>
       )}
